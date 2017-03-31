@@ -7,9 +7,11 @@ var argv = require('yargs').argv; //To read arguments from the terminal
 var BrainJSClassifier = require('natural-brain'); 
 var classifier = new BrainJSClassifier();
 
+const wordsToTrain = 100; //Number of top words from each entry to train on
+
 //Return a classification for a referenced string using a trained classifier
 module.exports.classify = function (classifierToUse, stringToClassify){
-	return classifier.classify(stringToClassify);
+	return classifierToUse.classify(stringToClassify);
 }
 //Returns all of the labels faced so far with their likelihood of 
 //matching the referenced string
@@ -17,16 +19,20 @@ module.exports.getClassifications = function (classifierToUse, stringToClassify)
 	return classifierToUse.getClassifications(stringToClassify);
 }
 //Load the neural network data from the save file
-module.exports.loadNeuralNetworkData = function (file, callback){
+module.exports.load = function (file, callback){
+	//Load the classifier from the file
 	BrainJSClassifier.load(file, null, function(err, classifier) {
 		if(err) return console.log(err);
-		console.log("Loaded data from file...");
+		console.log("Loaded data from file " + file + "...");
+		
+		//Send the callback function the loaded classifier
 		callback(classifier);
 	});
 }
 //Train the neural network using the specified file
-module.exports.trainNeuralNetwork = function (classifierToTrain, trainingTextFilename, callback){
+module.exports.train = function (classifierToTrain, trainingTextFilename, callback){
 	//Read text from the file to train the neural network
+
 	fs.readFile(trainingTextFilename, function(err, data) {
 		
 		//Convert the XML to JSON
@@ -45,8 +51,9 @@ module.exports.trainNeuralNetwork = function (classifierToTrain, trainingTextFil
 				//Get the important info from the entry
 				module.exports.getInfoFromEntry(currentEntry, function(data){
 					if(data.topics !== undefined && data.body !== undefined){
-						console.log(data);
-						classifierToTrain.addDocument(data.body, data.topics[0]);
+						for(var j = 0; j < data.topics.length; j++){
+							if(data.topics[i] !== undefined) if(data.body.length > 0) classifierToTrain.addDocument(data.body, data.topics[i]);
+						}
 					}
 				});
 			}
@@ -64,10 +71,10 @@ module.exports.trainNeuralNetwork = function (classifierToTrain, trainingTextFil
 	});
 }
 //Save the current neural network state to a file
-module.exports.saveNeuralNetwork = function (classifierToSave, file, callback){
+module.exports.save = function (classifierToSave, file, callback){
 	classifierToSave.save(file, function(err, savedClassifier) {
 		if(err) return console.log(err);
-		console.log("Neural Network training data saved to " + saveFile); 
+		console.log("Neural Network training data saved to " + file); 
 		callback(savedClassifier);
 	});
 }
@@ -110,7 +117,7 @@ module.exports.getInfoFromEntry = function (entry, callback){
 		body = [];
 
 		//Only add the top 5 words
-		for(var p = 0; p < sortedValues.length && p < 5; p++){
+		for(var p = 0; p < sortedValues.length && p < wordsToTrain; p++){
 			body.push(sortedValues[p][0]);
 		}
 	}

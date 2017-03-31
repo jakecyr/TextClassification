@@ -1,3 +1,7 @@
+/*
+ *Authors: Jake Cyr, Ryan Ek, Fanonx Rogers
+ *
+ */
 var fs = require('fs'); //Read and write to files
 var xml2js = require('xml2js'); //Convert XML to a JS object
 var parser = new xml2js.Parser(); //Parse XML
@@ -12,28 +16,30 @@ var nnFunctions = require("./neural_net_functions");
 //Location to save the classifier information learned
 const saveFile = __dirname + "/classifier.json";
 
+const baseFileName = __dirname + "/data/";
+
 var startTime = Date.now(); //Used for testing the training speeds
 
-// Load the classifier data from the data file
-nnFunctions.loadNeuralNetworkData("classifier.json", function(loadedClassifier){
+var testString = "argentine grain board figures show crop registrations of grains, oilseeds and their products to february 11, in thousands of tonnes";
+//Start training the neural network classifier using the referenced file
+var count = 0;
 
-	//Set the classifier to that of the one loaded from the file
+nnFunctions.load(saveFile, function(loadedClassifier){
 	classifier = loadedClassifier;
-	console.log("It took " + (Date.now() - startTime) + "ms to load");
 
-	// Reset the start time for training
-	startTime = Date.now();
+	for(var i = 0; i < 22; i++){
+		nnFunctions.train(classifier, baseFileName + i + ".sgm", function(result){
+			if(count === 21){
+				console.log(nnFunctions.classify(result, testString));
+				console.log(nnFunctions.getClassifications(result, testString));
+				console.log("It took " + ((Date.now() - startTime)/1000) + "s to train");
+				nnFunctions.save(result, saveFile, function(){ console.log("Saved to " + saveFile);});
+			}
+			else{
+				classifier = result;
+			}
 
-	//Start training the neural network classifier using the referenced file
-	nnFunctions.trainNeuralNetwork(classifier, __dirname + "/data/" + (argv.file || 1) + ".sgm", function(resultClassifier){
-		//Update the classifier based on the recent training
-		classifier = resultClassifier;
-
-		console.log("It took " + ((Date.now() - startTime)/1000) + "s to train");
-		
-		//Save all of the training data to a file
-		nnFunctions.saveNeuralNetwork(classifier, "classifier.json", function(result){
-			console.log("Saved successfully");
+			count++;
 		});
-	});
+	}
 });
