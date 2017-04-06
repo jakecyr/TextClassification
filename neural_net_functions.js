@@ -7,7 +7,7 @@ var argv = require('yargs').argv; //To read arguments from the terminal
 var BrainJSClassifier = require('natural-brain'); 
 var classifier = new BrainJSClassifier();
 
-const wordsToTrain = 100; //Number of top words from each entry to train on
+const wordsToTrain = 20; //Number of top words from each entry to train on
 
 //Return a classification for a referenced string using a trained classifier
 module.exports.classify = function (classifierToUse, stringToClassify){
@@ -41,7 +41,7 @@ module.exports.train = function (classifierToTrain, trainingTextFilename, callba
 			//Get all of the entries
 			var entries = result["DATA"]["REUTERS"];
 
-			console.log("Adding " + entries.length + " entries...");
+			// console.log("Adding " + entries.length + " entries...");
 
 			//Add all entries to the neural network
 			for(var i = 0; i < entries.length; i++){
@@ -52,18 +52,16 @@ module.exports.train = function (classifierToTrain, trainingTextFilename, callba
 				module.exports.getInfoFromEntry(currentEntry, function(data){
 					if(data.topics !== undefined && data.body !== undefined){
 						for(var j = 0; j < data.topics.length; j++){
-							if(data.topics[i] !== undefined) if(data.body.length > 0) classifierToTrain.addDocument(data.body, data.topics[i]);
+							if(data.topics[i] !== undefined){
+								classifierToTrain.addDocument(data.body, data.topics[i]);
+							}
 						}
 					}
 				});
 			}
 
-			console.log("Starting to train...");
-
 			//Train the classifier with the added documents
 			classifierToTrain.train();
-
-			console.log("Done training.");
 
 			//Return the classifier trained with the new information
 			callback(classifierToTrain);
@@ -86,7 +84,7 @@ module.exports.getInfoFromEntry = function (entry, callback){
 	var body = textObj["BODY"];
 
 	if(body !== undefined){ 
-		body = body[0].replace(/(?:\r\n|\r|\n|\s+|\sa\s|\sthe\s|\sand\s|\.|\')/g, ' ');
+		body = body[0].replace(/(?:\r\n|\r|\n|\s+|\.|\')/g, ' ');
 
 		var words = body.split(" ");
 		var wordCounts = {};
@@ -94,7 +92,7 @@ module.exports.getInfoFromEntry = function (entry, callback){
 		for(var p = 0; p < words.length; p++){
 			var word = words[p].trim().toUpperCase();
 
-			if(word != "" && /^[a-zA-Z0-9]+$/i.test(word) && word != "THE" && word != "A" && word != "AND" && word != "REUTER"){
+			if(word != "" && /^[a-zA-Z0-9]+$/i.test(word) && word != "THE" && word != "A" && word != "AND" && word != "REUTER" && word.length > 4){
 				if(word in wordCounts){
 					wordCounts[word] = wordCounts[word] + 1;
 				}
@@ -120,7 +118,86 @@ module.exports.getInfoFromEntry = function (entry, callback){
 		for(var p = 0; p < sortedValues.length && p < wordsToTrain; p++){
 			body.push(sortedValues[p][0]);
 		}
+		
+		callback({"body": body, "topics": topics });
 	}
+}
+//Test the neural network using the specified file
+module.exports.test = function (classifierToTest, categories, trainingTextFilename, callback){
+		//Read text from the file to train the neural network
 
-	callback({"body": body, "topics": topics });
+		var counts = {};
+
+		fs.readFile(trainingTextFilename, function(err, data) {
+			
+			//Convert the XML to JSON
+			parser.parseString(data, function (err, result) {
+				
+				//Get all of the entries
+				var entries = result["DATA"]["REUTERS"];
+
+				//Add all entries to the neural network
+				for(var i = 0; i < entries.length; i++){
+
+					var currentEntry = entries[i];
+
+					//Get the important info from the entry
+					module.exports.getInfoFromEntry(currentEntry, function(data){
+
+						if(data.topics !== undefined && data.body !== undefined){
+							for(var j = 0; j < data.topics.length; j++){
+								var currentTopic = data.topics[j];
+
+								for(key in categories){
+									var classification = module.exports.classify(classifierToTest, data.body);
+
+									//True
+									if(key == classification){
+										//true pos
+										if(key == currentTopic){
+											if(counts[key]){
+												counts[key]["tp"] = (counts[key]["tp"] || 0) + 1;
+											}
+											else{
+												counts[key] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0};
+											}
+										}
+										else{
+											if(counts[key]){
+												counts[key]["tn"] = (counts[key]["tn"] || 0) + 1;
+											}
+											else{
+												counts[key] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0};
+											}
+										}
+									}
+									//False
+									else{
+										if(key == currentTopic){
+											if(counts[key]){
+												counts[key]["fp"] = (counts[key]["fp"] || 0) + 1;
+											}
+											else{
+												counts[key] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0};
+											}
+										}
+										else{
+											if(counts[key]){
+												counts[key]["fn"] = (counts[key]["fn"] || 0) + 1;
+											}
+											else{
+												counts[key] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1};
+											}
+										}
+									}
+								}
+							}
+						}
+					});
+				}
+
+				//Return the classifier trained with the new information
+				callback(counts);
+			});
+		});
 }
