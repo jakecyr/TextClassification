@@ -1,7 +1,6 @@
 var fs = require('fs'); //Read and write to files
 var xml2js = require('xml2js'); //Convert XML to a JS object
 var parser = new xml2js.Parser(); //Parse XML
-var argv = require('yargs').argv; //To read arguments from the terminal
 
 //Neural Network and NLP imports
 var BrainJSClassifier = require('natural-brain'); 
