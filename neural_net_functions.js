@@ -6,7 +6,7 @@ var parser = new xml2js.Parser(); //Parse XML
 var BrainJSClassifier = require('natural-brain'); 
 var classifier = new BrainJSClassifier();
 
-const wordsToTrain = 20; //Number of top words from each entry to train on
+const wordsToTrain = 100; //Number of top words from each entry to train on
 
 //Return a classification for a referenced string using a trained classifier
 module.exports.classify = function (classifierToUse, stringToClassify){
@@ -30,6 +30,7 @@ module.exports.load = function (file, callback){
 }
 //Train the neural network using the specified file
 module.exports.train = function (classifierToTrain, trainingTextFilename, callback){
+
 	//Read text from the file to train the neural network
 
 	fs.readFile(trainingTextFilename, function(err, data) {
@@ -40,7 +41,6 @@ module.exports.train = function (classifierToTrain, trainingTextFilename, callba
 			//Get all of the entries
 			var entries = result["DATA"]["REUTERS"];
 
-			// console.log("Adding " + entries.length + " entries...");
 
 			//Add all entries to the neural network
 			for(var i = 0; i < entries.length; i++){
@@ -52,7 +52,7 @@ module.exports.train = function (classifierToTrain, trainingTextFilename, callba
 					if(data.topics !== undefined && data.body !== undefined){
 						for(var j = 0; j < data.topics.length; j++){
 							if(data.topics[i] !== undefined){
-								classifierToTrain.addDocument(data.body, data.topics[i]);
+								classifierToTrain.addDocument(data.body.join(" ").toUpperCase(), data.topics[i]);
 							}
 						}
 					}
@@ -122,81 +122,83 @@ module.exports.getInfoFromEntry = function (entry, callback){
 	}
 }
 //Test the neural network using the specified file
-module.exports.test = function (classifierToTest, categories, trainingTextFilename, callback){
-		//Read text from the file to train the neural network
+module.exports.test = function (classifierToTest, categories, counts, trainingTextFilename, callback){
+	//Read text from the file to train the neural network
 
-		var counts = {};
-
-		fs.readFile(trainingTextFilename, function(err, data) {
+	fs.readFile(trainingTextFilename, function(err, data) {
+		
+		//Convert the XML to JSON
+		parser.parseString(data, function (err, result) {
 			
-			//Convert the XML to JSON
-			parser.parseString(data, function (err, result) {
-				
-				//Get all of the entries
-				var entries = result["DATA"]["REUTERS"];
+			//Get all of the entries
+			var entries = result["DATA"]["REUTERS"];
 
-				//Add all entries to the neural network
-				for(var i = 0; i < entries.length; i++){
+			//Test Entries with teh neural network
+			for(var i = 0; i < entries.length; i++){
 
-					var currentEntry = entries[i];
+				var currentEntry = entries[i];
 
-					//Get the important info from the entry
-					module.exports.getInfoFromEntry(currentEntry, function(data){
+				//Get the important info from the entry
+				module.exports.getInfoFromEntry(currentEntry, function(data){
 
-						if(data.topics !== undefined && data.body !== undefined){
-							for(var j = 0; j < data.topics.length; j++){
-								var currentTopic = data.topics[j];
+					if(data.topics !== undefined && data.body !== undefined){
+						var classificationObj = module.exports.getClassifications(classifierToTest, data.body);
 
-								for(key in categories){
-									var classification = module.exports.classify(classifierToTest, data.body);
+						var classifications = [];
 
-									//True
-									if(key == classification){
-										//true pos
-										if(key == currentTopic){
-											if(counts[key]){
-												counts[key]["tp"] = (counts[key]["tp"] || 0) + 1;
-											}
-											else{
-												counts[key] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0};
-											}
-										}
-										else{
-											if(counts[key]){
-												counts[key]["tn"] = (counts[key]["tn"] || 0) + 1;
-											}
-											else{
-												counts[key] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0};
-											}
-										}
-									}
-									//False
-									else{
-										if(key == currentTopic){
-											if(counts[key]){
-												counts[key]["fp"] = (counts[key]["fp"] || 0) + 1;
-											}
-											else{
-												counts[key] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0};
-											}
-										}
-										else{
-											if(counts[key]){
-												counts[key]["fn"] = (counts[key]["fn"] || 0) + 1;
-											}
-											else{
-												counts[key] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1};
-											}
-										}
-									}
+						for(var o = 0; o < classificationObj.length; o++) classifications.push(classificationObj[o].label);
+
+						//Loop through each known category
+						for(var k = 0; k < categories.length; k++){
+							var currentCategory = categories[k];
+
+							//Check if the current category is in the array of topics or classifications
+							var catInTopics = (data.topics.indexOf(currentCategory) > -1) ? true : false;
+							var catInClassification = (classifications.indexOf(currentCategory)) > -1 ? true : false;
+
+							//True positive
+							if(catInTopics && catInClassification){
+								if(counts[currentCategory]){
+									counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
+								}
+								else{
+									counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
+								}
+							}
+							//True negative
+							else if(!catInTopics && !catInClassification){
+								if(counts[currentCategory]){
+									counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
+								}
+								else{
+									counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
+								}
+							}
+							//False positive
+							else if(!catInTopics && catInClassification){
+								if(counts[currentCategory]){
+									counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
+								}
+								else{
+									counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
+								}
+							}
+							//False negative
+							else if(catInTopics && !catInClassification){
+								if(counts[currentCategory]){
+									counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
+								}
+								else{
+									counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };
 								}
 							}
 						}
-					});
-				}
+					}
+				});
+			}
 
-				//Return the classifier trained with the new information
-				callback(counts);
-			});
+			//Return the classifier trained with the new information
+			callback(counts);
 		});
+	});
 }

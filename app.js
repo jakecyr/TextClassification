@@ -10,7 +10,7 @@ var nnFunctions = require("./neural_net_functions");
 //Location to save the classifier information learned
 const saveFile = __dirname + "/classifier.json";
 const baseFileName = __dirname + "/data/";
-const filesToTrainOn = 17;
+const filesToTrainOn = 18;
 
 //Check if the save file exists
 if (fileExists(saveFile)) {
@@ -19,19 +19,24 @@ if (fileExists(saveFile)) {
 	console.log("Loading...");
 
 	nnFunctions.load(saveFile, function(loadedClassifier){
+
+		// loadedClassifier.events.on('trainedWithDocument', function (obj) {console.log(obj); });
 		
 		console.log("Starting to train...");
 		
 		classifier = loadedClassifier;
 
-		trainOnFiles(filesToTrainOn, function(){
-			nnFunctions.save(classifier, saveFile, function(){
-				console.log("Saved to " + saveFile);
+		getCategories(function(categories){
+			test(filesToTrainOn + 1, categories, {}, function(newCounts){
+				var output = "CATEGORY,TP,TN,FP,FN,MCC\n";
 
-				getCategories(function(categories){
-					nnFunctions.test(classifier, categories,  baseFileName + "0.sgm", function(resultingCounts){
-						console.log(resultingCounts);
-					});
+				for(key in newCounts){
+					var obj = newCounts[key];
+					output += key + "," + obj.tp + "," + obj.tn + "," + obj.fp + "," + obj.fn + "," + calcMCC(obj.tp, obj.tn, obj.fp, obj.fn) + "\n";
+				}
+
+				fs.writeFile("testResults.csv", output, function(err){
+					console.log("Test results saved to file");
 				});
 			});
 		});
@@ -44,16 +49,27 @@ else{
 	trainOnFiles(filesToTrainOn, function(){
 		nnFunctions.save(classifier, saveFile, function(){
 			console.log("Saved to " + saveFile);
-
-			getCategories(function(categories){
-				nnFunctions.test(classifier, categories,  baseFileName + "0.sgm", function(resultingCounts){
-					console.log(resultingCounts);
-				});
-			});
 		});
 	});
 }
 
+function test(currentFile, categories, counts, callback){
+	nnFunctions.test(classifier, categories, counts, baseFileName + currentFile + ".sgm", function(newCounts){
+		if(currentFile == 21){
+			callback(newCounts);
+		}
+		else{
+			test(currentFile + 1, categories, newCounts, callback);
+		}
+	});
+}
+function calcMCC(tp, tn, fp, fn){
+	var mcc = 0;
+	var numerator = (tp * tn) - (fp * fn);
+	var denominator = Math.sqrt( (tp + fp)*(tp + fn)*(tn + fp)*(tn + fn) );
+	if(denominator == 0) denominator = 1;
+	return numerator/denominator;
+}
 function trainOnFiles(maxFileToTrainOn, callback){
 	var count = 0;
 
@@ -70,7 +86,6 @@ function trainOnFiles(maxFileToTrainOn, callback){
 		});
 	}
 }
-
 function getCategories(callback){
 	fs.readFile(saveFile, function(err, jsonResult){
 		if(err) return console.error(err);
@@ -83,15 +98,20 @@ function getCategories(callback){
 			cats[labels[j].label] = 1;
 		}
 
-		callback(cats);
+		var output = [];
+
+		for(key in cats){
+			output.push(key);
+		}
+
+		callback(output);
 	});
 }
-
 function fileExists(filePath){
-    try {
-        return fs.statSync(filePath).isFile();
-    }
-    catch (err) {
-        return false;
-    }
+	try {
+		return fs.statSync(filePath).isFile();
+	}
+	catch (err) {
+		return false;
+	}
 }
