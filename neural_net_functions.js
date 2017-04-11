@@ -134,13 +134,14 @@ module.exports.getInfoFromEntry = function (entry){
 //Performs k-fold cross validation on the data files
 module.exports.kfold = function(){
 
-	var index = parseInt(Math.random() * 22);
 	var counts = {};
-	var allData = [];
 
+	//Get an array of the entries from all of the data files
 	readAllEntries(0, [], function(allEntries){
 
 		const k = 10;
+
+		allEntries = shuffle(allEntries);
 
 		//Split up all of the entries into 10 (mostly) equal groups
 		var groups = splitUp(allEntries, k);
@@ -149,16 +150,17 @@ module.exports.kfold = function(){
 		for(var q = 0; q < k; q++){
 			var classifier = new BrainJSClassifier(); //Create a new classifier
 
-			var groupClone = groups.slice(0); //Clone the groups array
+			var testing = [];
+			var training = [];
 
-			var testing = groupClone.splice(q, 1); //remove the current testing group
-			var training = groupClone; //set the remaining groups as training data
+			testing = allEntries.slice(0).splice(q, 1);
+
+			for(var a = 0; a < allEntries.length; a++) if(a != q) training.push(allEntries[a]);
 
 			//Loop through each training group
 			for(var d = 0; d < training.length; d++){
-				var currentTrainingSet = training[d];
 
-				console.log(currentTrainingSet)
+				var currentTrainingSet = training[d];
 
 				//Loop through each entry in the current group
 				for(var p = 0; p < currentTrainingSet.length; p++){
@@ -173,6 +175,7 @@ module.exports.kfold = function(){
 						if(data.topics !== undefined && data.body !== undefined){
 							//Loop through all of the topics
 							for(var j = 0; j < data.topics.length; j++){
+								console.log("Adding doc");
 								classifier.addDocument(data.body, data.topics[j]); //Add the topic/body to the classifier
 							}
 						}
@@ -180,17 +183,26 @@ module.exports.kfold = function(){
 
 				}
 
-				console.log("Starting to train");
+				console.log(`Starting to train set ${d}...`);
 				classifier.train(); //train the classifier with data from the current training set
+				console.log(`Finished training set ${d}...`);
 			}
 
 
+			console.log("Finished training...");
+
+			//Get all categories from the classifier
+			var categories = module.exports.getCategories(classifier);
+			
+
+			console.log("Starting to test...");
+
 			//Loop through each entry in the testing set
 			for(var i = 0; i < testing.length; i++){
-				var currentTestingSet = training[i];
+				var currentTestingSet = testing[i];
 
-				for(var p = 0; p < currentTrainingSet.length; p++){
-					var currentEntry = currentTrainingSet[p];
+				for(var p = 0; p < currentTestingSet.length; p++){
+					var currentEntry = currentTestingSet[p];
 
 					//Get the important info from the entry
 					var data = module.exports.getInfoFromEntry(currentEntry);
@@ -199,90 +211,74 @@ module.exports.kfold = function(){
 					if(data != undefined){
 						//Make sure there are both topics and a body for the current datum
 						if(data.topics !== undefined && data.body !== undefined){
-							//Loop through all of the topics
-							for(var j = 0; j < data.topics.length; j++){
-								classifier.addDocument(data.body, data.topics[j]); //Add the topic/body to the classifier
+							
+							var classificationObj = module.exports.getClassifications(classifier, data.body);
+
+							var classifications = [];
+
+							classificationObj.forEach(function(classification){
+								if(classificationObj[o].value > 0.1) classifications.push(classification.label);
+							})
+
+							console.log(classifications);
+								
+
+							if(classifications.length == 0) classifications.push(module.exports.classify(classifier, data.body));
+
+							//Loop through each known category
+							for(var l = 0; l < categories.length; l++){
+								var currentCategory = categories[l];
+
+								//Check if the current category is in the array of topics or classifications
+								var catInTopics = (data.topics.indexOf(currentCategory) > -1) ? true : false;
+								var catInClassification = (classifications.indexOf(currentCategory)) > -1 ? true : false;
+
+								// console.log("Category", currentCategory, "TOPICS", data.topics, "CLASS", classifications);
+
+								//True positive
+								if(catInTopics && catInClassification){
+									if(counts[currentCategory]){
+										counts[currentCategory]["tp"] = counts[currentCategory]["tp"]+1;
+									}
+									else{
+										counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
+									}
+								}
+								//True negative
+								else if(!catInTopics && !catInClassification){
+									if(counts[currentCategory]){
+										counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
+									}
+									else{
+										counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
+									}
+								}
+								//False positive
+								else if(!catInTopics && catInClassification){
+									if(counts[currentCategory]){
+										counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
+									}
+									else{
+										counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
+									}
+								}
+								//False negative
+								else if(catInTopics && !catInClassification){
+									if(counts[currentCategory]){
+										counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
+									}
+									else{
+										counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };
+									}
+								}
 							}
 						}
 					}
 				}
 			}
-
-
-			//Test Entries with teh neural network
-			for(var i = 0; i < entries.length; i++){
-
-				var currentEntry = entries[i];
-				var data = module.exports.getInfoFromEntry(currentEntry);
-
-				if(data.topics !== undefined && data.body !== undefined){
-					var classificationObj = module.exports.getClassifications(classifierToTest, data.body);
-
-					var classifications = [];
-
-					for(var o = 0; o < classificationObj.length; o++){
-						if(classificationObj[o].value > 0.2){
-							classifications.push(classificationObj[o].label);
-						}
-					}
-
-					if(classifications.length == 0) classifications.push(module.exports.classify(classifierToTest, data.body));
-
-					//Loop through each known category
-					for(var l = 0; l < categories.length; l++){
-						var currentCategory = categories[l];
-
-						//Check if the current category is in the array of topics or classifications
-						var catInTopics = (data.topics.indexOf(currentCategory) > -1) ? true : false;
-						var catInClassification = (classifications.indexOf(currentCategory)) > -1 ? true : false;
-
-						// console.log("Category", currentCategory, "TOPICS", data.topics, "CLASS", classifications);
-
-						//True positive
-						if(catInTopics && catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
-							}
-						}
-						//True negative
-						else if(!catInTopics && !catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
-							}
-						}
-						//False positive
-						else if(!catInTopics && catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
-							}
-						}
-						//False negative
-						else if(catInTopics && !catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };
-							}
-						}
-					}
-				}
-			}
-
 		}
 	});
 }
-
-
 
 //Test the neural network using the specified file
 module.exports.test = function (classifierToTest, categories, counts, trainingTextFilename, callback){
@@ -327,39 +323,19 @@ module.exports.test = function (classifierToTest, categories, counts, trainingTe
 
 						//True positive
 						if(catInTopics && catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
-							}
+							counts[currentCategory]["tp"] = counts[currentCategory]["tp"]+1;
 						}
 						//True negative
 						else if(!catInTopics && !catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
-							}
+							counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
 						}
 						//False positive
 						else if(!catInTopics && catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
-							}
+							counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
 						}
 						//False negative
 						else if(catInTopics && !catInClassification){
-							if(counts[currentCategory]){
-								counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
-							}
-							else{
-								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };
-							}
+							counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
 						}
 					}
 				}
@@ -403,28 +379,6 @@ module.exports.mcc = function(tp, tn, fp, fn){
 	if(denominator == 0) denominator = 1;
 	return numerator/denominator;
 }
-//Returns an array of categories (topics) from the data files
-module.exports.getCategories = function(saveFile, callback){
-	fs.readFile(saveFile, function(err, jsonResult){
-		if(err) return console.error(err);
-
-		var json = JSON.parse(jsonResult);
-		var labels = json.docs;
-		var cats = {};
-
-		for(var j = 0; j < labels.length; j++){
-			cats[labels[j].label] = 1;
-		}
-
-		var output = [];
-
-		for(key in cats){
-			output.push(key);
-		}
-
-		callback(output);
-	});
-}
 //Checks if a referenced file exists
 module.exports.fileExists = function(filePath){
 	try{
@@ -433,6 +387,17 @@ module.exports.fileExists = function(filePath){
 	catch (err){
 		return false;
 	}
+}
+//Returns an array of categories (topics) from the data files
+module.exports.getCategories = function(classifier){
+	var labels = classifier.docs;
+	var cats = {};
+	var output = [];
+
+	for(var j = 0; j < labels.length; j++) cats[labels[j].label] = 1;
+	for(key in cats) output.push(key);
+
+	return output;
 }
 
 //Returns an array that is randomly shuffled
@@ -461,7 +426,7 @@ function splitUp(arr, n) {
         partLength = Math.floor(arr.length / n),
         result = [];
 
-        for(var i = 0; i < arr.length; i += partLength) {
+    for(var i = 0; i < arr.length; i += partLength) {
         	var end = partLength + i,
         	add = false;
 
@@ -473,9 +438,7 @@ function splitUp(arr, n) {
 
         result.push(arr.slice(i, end)); // part of the array
 
-        if(add) {
-            i++; // also increment i in the case we added an extra element for division
-        }
+        if(add) i++;
     }
 
     return result;
@@ -487,11 +450,11 @@ function readAllEntries(file, entries, callback){
 		parser.parseString(data, function (err, result) {
 			
 			//Get all of the entries
-			var entries = result["DATA"]["REUTERS"];
+			var newEntries = result["DATA"]["REUTERS"];
 
-			for(var i = 0; i < entries.length; i++){
+			for(var i = 0; i < newEntries.length; i++){
 
-				var currentEntry = entries[i];
+				var currentEntry = newEntries[i];
 
 				if(currentEntry !== undefined){
 
