@@ -6,7 +6,10 @@ var parser = new xml2js.Parser(); //Parse XML
 var BrainJSClassifier = require('natural-brain'); 
 var classifier = new BrainJSClassifier();
 
-const wordsToTrain = 100; //Number of top words from each entry to train on
+const wordsToTrain = 200; //Number of top words from each entry to train on
+const filesToTrainOn = 18;
+
+const baseFileName = __dirname + "/data/";
 
 //Return a classification for a referenced string using a trained classifier
 module.exports.classify = function (classifierToUse, stringToClassify){
@@ -29,18 +32,14 @@ module.exports.load = function (file, callback){
 	});
 }
 //Train the neural network using the specified file
-module.exports.train = function (classifierToTrain, trainingTextFilename, callback){
-
+module.exports.train = function (startFile, filesToTrainOn, classifierToTrain, callback){
 	//Read text from the file to train the neural network
-
-	fs.readFile(trainingTextFilename, function(err, data) {
-		
+	fs.readFile(baseFileName + startFile + ".sgm", function(err, data) {
 		//Convert the XML to JSON
 		parser.parseString(data, function (err, result) {
 			
 			//Get all of the entries
 			var entries = result["DATA"]["REUTERS"];
-
 
 			//Add all entries to the neural network
 			for(var i = 0; i < entries.length; i++){
@@ -48,22 +47,26 @@ module.exports.train = function (classifierToTrain, trainingTextFilename, callba
 				var currentEntry = entries[i];
 
 				//Get the important info from the entry
-				module.exports.getInfoFromEntry(currentEntry, function(data){
-					if(data.topics !== undefined && data.body !== undefined){
-						for(var j = 0; j < data.topics.length; j++){
-							if(data.topics[i] !== undefined){
-								classifierToTrain.addDocument(data.body.join(" ").toUpperCase(), data.topics[i]);
-							}
+				var data = module.exports.getInfoFromEntry(currentEntry);
+				
+				if(data.topics !== undefined && data.body !== undefined){
+					for(var j = 0; j < data.topics.length; j++){
+						if(data.topics[i] !== undefined){
+							classifierToTrain.addDocument(data.body, data.topics[i]);
 						}
 					}
-				});
+				}
 			}
 
-			//Train the classifier with the added documents
-			classifierToTrain.train();
-
-			//Return the classifier trained with the new information
-			callback(classifierToTrain);
+			if(startFile == filesToTrainOn){
+				console.log("TRAINING");
+				classifierToTrain.train();
+				callback(classifierToTrain);
+			}
+			else{
+				startFile += 1;
+				module.exports.train(startFile, filesToTrainOn, classifierToTrain, callback);
+			}
 		});
 	});
 }
@@ -76,7 +79,7 @@ module.exports.save = function (classifierToSave, file, callback){
 	});
 }
 //Return an object given one of the entries from a data file
-module.exports.getInfoFromEntry = function (entry, callback){
+module.exports.getInfoFromEntry = function (entry){
 	var topics = entry["TOPICS"][0]["D"] || undefined;
 	var textObj = entry["TEXT"][0];
 	var title = textObj["TITLE"];
@@ -89,9 +92,9 @@ module.exports.getInfoFromEntry = function (entry, callback){
 		var wordCounts = {};
 
 		for(var p = 0; p < words.length; p++){
-			var word = words[p].trim().toUpperCase();
+			var word = words[p].trim();
 
-			if(word != "" && /^[a-zA-Z0-9]+$/i.test(word) && word != "THE" && word != "A" && word != "AND" && word != "REUTER" && word.length > 4){
+			if(word != "" && /^[a-zA-Z0-9]+$/i.test(word) && word.length > 4){
 				if(word in wordCounts){
 					wordCounts[word] = wordCounts[word] + 1;
 				}
@@ -118,7 +121,10 @@ module.exports.getInfoFromEntry = function (entry, callback){
 			body.push(sortedValues[p][0]);
 		}
 		
-		callback({"body": body, "topics": topics });
+		return {"body": body, "topics": topics };
+	}
+	else{
+		return {body: undefined, topics: undefined};
 	}
 }
 //Test the neural network using the specified file
@@ -137,68 +143,131 @@ module.exports.test = function (classifierToTest, categories, counts, trainingTe
 			for(var i = 0; i < entries.length; i++){
 
 				var currentEntry = entries[i];
+				var data = module.exports.getInfoFromEntry(currentEntry);
 
-				//Get the important info from the entry
-				module.exports.getInfoFromEntry(currentEntry, function(data){
+				if(data.topics !== undefined && data.body !== undefined){
+					var classificationObj = module.exports.getClassifications(classifierToTest, data.body);
 
-					if(data.topics !== undefined && data.body !== undefined){
-						var classificationObj = module.exports.getClassifications(classifierToTest, data.body);
+					var classifications = [];
 
-						var classifications = [];
+					for(var o = 0; o < classificationObj.length; o++) classifications.push(classificationObj[o].label);
 
-						for(var o = 0; o < classificationObj.length; o++) classifications.push(classificationObj[o].label);
+					//Loop through each known category
+					for(var k = 0; k < categories.length; k++){
+						var currentCategory = categories[k];
 
-						//Loop through each known category
-						for(var k = 0; k < categories.length; k++){
-							var currentCategory = categories[k];
+						//Check if the current category is in the array of topics or classifications
+						var catInTopics = (data.topics.indexOf(currentCategory) > -1) ? true : false;
+						var catInClassification = (classifications.indexOf(currentCategory)) > -1 ? true : false;
 
-							//Check if the current category is in the array of topics or classifications
-							var catInTopics = (data.topics.indexOf(currentCategory) > -1) ? true : false;
-							var catInClassification = (classifications.indexOf(currentCategory)) > -1 ? true : false;
+						// console.log(currentCategory, data.topics, classifications);
 
-							//True positive
-							if(catInTopics && catInClassification){
-								if(counts[currentCategory]){
-									counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
-								}
-								else{
-									counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
-								}
+						//True positive
+						if(catInTopics && catInClassification){
+							if(counts[currentCategory]){
+								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
 							}
-							//True negative
-							else if(!catInTopics && !catInClassification){
-								if(counts[currentCategory]){
-									counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
-								}
-								else{
-									counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
-								}
+							else{
+								counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
 							}
-							//False positive
-							else if(!catInTopics && catInClassification){
-								if(counts[currentCategory]){
-									counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
-								}
-								else{
-									counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
-								}
+						}
+						//True negative
+						else if(!catInTopics && !catInClassification){
+							if(counts[currentCategory]){
+								counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
 							}
-							//False negative
-							else if(catInTopics && !catInClassification){
-								if(counts[currentCategory]){
-									counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
-								}
-								else{
-									counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };
-								}
+							else{
+								counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
+							}
+						}
+						//False positive
+						else if(!catInTopics && catInClassification){
+							if(counts[currentCategory]){
+								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
+							}
+							else{
+								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
+							}
+						}
+						//False negative
+						else if(catInTopics && !catInClassification){
+							if(counts[currentCategory]){
+								counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
+							}
+							else{
+								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };
 							}
 						}
 					}
-				});
+				}
 			}
 
 			//Return the classifier trained with the new information
 			callback(counts);
 		});
 	});
+}
+//Returns an array with the weights associated with each connection
+module.exports.getBrainWeights = function(classifierWithWeights){
+	return classifierWithWeights.classifier.brain.weights;
+}
+//Run tests with all of the files that weren't trained on
+module.exports.runAllTests = function(classifier, currentFile, categories, counts, callback){
+	module.exports.test(classifier, categories, counts, baseFileName + currentFile + ".sgm", function(newCounts){
+		if(currentFile == 21){
+			callback(newCounts);
+		}
+		else{
+			// console.log(newCounts);
+			module.exports.runAllTests(classifier, currentFile + 1, categories, newCounts, callback);
+		}
+	});
+}
+module.exports.saveValidationData = function(counts){
+	var output = "CATEGORY,TP,TN,FP,FN,MCC\n";
+
+	for(key in counts){
+		var obj = counts[key];
+		output += key + "," + obj.tp + "," + obj.tn + "," + obj.fp + "," + obj.fn + "," + module.exports.mcc(obj.tp, obj.tn, obj.fp, obj.fn) + "\n";
+	}
+
+	fs.writeFile("testResults.csv", output, function(err){
+		console.log("Test results saved to file");
+	});
+}
+module.exports.mcc = function(tp, tn, fp, fn){
+	var mcc = 0;
+	var numerator = (tp * tn) - (fp * fn);
+	var denominator = Math.sqrt( (tp + fp)*(tp + fn)*(tn + fp)*(tn + fn) );
+	if(denominator == 0) denominator = 1;
+	return numerator/denominator;
+}
+module.exports.getCategories = function(saveFile, callback){
+	fs.readFile(saveFile, function(err, jsonResult){
+		if(err) return console.error(err);
+
+		var json = JSON.parse(jsonResult);
+		var labels = json.docs;
+		var cats = {};
+
+		for(var j = 0; j < labels.length; j++){
+			cats[labels[j].label] = 1;
+		}
+
+		var output = [];
+
+		for(key in cats){
+			output.push(key);
+		}
+
+		callback(output);
+	});
+}
+module.exports.fileExists = function(filePath){
+	try{
+		return fs.statSync(filePath).isFile();
+	}
+	catch (err){
+		return false;
+	}
 }
