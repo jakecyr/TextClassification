@@ -10,14 +10,12 @@ const wordsToTrain = 200; //Number of top words from each entry to train on
 const baseFileName = __dirname + "/data/"; //Base file name for all data files
 
 //Performs k-fold cross validation on the data files
-module.exports.kfold = function(){
+module.exports.kfold = function(k){
 
 	var counts = {};
 
 	//Get an array of the entries from all of the data files
 	readAllEntries(0, [], function(allEntries){
-
-		const k = 10;
 
 		allEntries = shuffle(allEntries);
 
@@ -85,7 +83,7 @@ module.exports.kfold = function(){
 						//True positive
 						if(catInTopics && catInClassification){
 							if(counts[currentCategory]){
-								counts[currentCategory]["tp"] = counts[currentCategory]["tp"]+1;
+								counts[currentCategory]["tp"] = (counts[currentCategory]["tp"] || 0) +1;
 							}
 							else{
 								counts[currentCategory] = {"tp": 1, "tn": 0, "fp": 0, "fn": 0 };
@@ -94,7 +92,7 @@ module.exports.kfold = function(){
 						//True negative
 						else if(!catInTopics && !catInClassification){
 							if(counts[currentCategory]){
-								counts[currentCategory]["tn"] = counts[currentCategory]["tn"]+1;
+								counts[currentCategory]["tn"] = (counts[currentCategory]["tn"]||0)+1;
 							}
 							else{
 								counts[currentCategory] = {"tp": 0, "tn": 1, "fp": 0, "fn": 0 };
@@ -103,16 +101,16 @@ module.exports.kfold = function(){
 						//False positive
 						else if(!catInTopics && catInClassification){
 							if(counts[currentCategory]){
-								counts[currentCategory]["fp"] = counts[currentCategory]["fp"]+1;
+								counts[currentCategory]["fp"] = (counts[currentCategory]["fp"]||0)+1;
 							}
 							else{
 								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 1, "fn": 0 };
 							}
 						}
 						//False negative
-						else if(catInTopics && !catInClassification){
+						else(catInTopics && !catInClassification){
 							if(counts[currentCategory]){
-								counts[currentCategory]["fn"] = counts[currentCategory]["fn"]+1;
+								counts[currentCategory]["fn"] = (counts[currentCategory]["fn"]||0)+1;
 							}
 							else{
 								counts[currentCategory] = {"tp": 0, "tn": 0, "fp": 0, "fn": 1 };

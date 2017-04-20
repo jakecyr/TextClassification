@@ -1,5 +1,5 @@
 //Authors: Jake Cyr, Ryan Ek, Fanonx Rogers
-var fs = require('fs');
 var nnFunctions = require("./neural_net_functions");
 
-nnFunctions.kfold();
+//Start k-fold cross validation and pass in the k value to use
+nnFunctions.kfold(10);
