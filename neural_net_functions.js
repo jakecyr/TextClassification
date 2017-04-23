@@ -108,7 +108,7 @@ module.exports.kfold = function(k){
 							}
 						}
 						//False negative
-						else(catInTopics && !catInClassification){
+						else{
 							if(counts[currentCategory]){
 								counts[currentCategory]["fn"] = (counts[currentCategory]["fn"]||0)+1;
 							}
